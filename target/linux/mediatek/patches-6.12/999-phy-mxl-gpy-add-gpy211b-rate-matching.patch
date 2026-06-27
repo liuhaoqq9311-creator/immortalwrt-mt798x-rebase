@@ -1,0 +1,29 @@
+--- a/drivers/net/phy/mxl-gpy.c
++++ b/drivers/net/phy/mxl-gpy.c
+@@ -666,6 +666,18 @@
+ 	return gpy_update_mdix(phydev);
+ }
+ 
++
++static int gpy_get_rate_matching(struct phy_device *phydev,
++				 phy_interface_t iface)
++{
++	switch (iface) {
++	case PHY_INTERFACE_MODE_2500BASEX:
++		return RATE_MATCH_PAUSE;
++	default:
++		return RATE_MATCH_NONE;
++	}
++}
++
+ static int gpy_read_status(struct phy_device *phydev)
+ {
+ 	int ret;
+@@ -1170,6 +1182,7 @@
+ 		.config_aneg	= gpy_config_aneg,
+ 		.aneg_done	= genphy_c45_aneg_done,
+ 		.read_status	= gpy_read_status,
++		.get_rate_matching = gpy_get_rate_matching,
+ 		.config_intr	= gpy_config_intr,
+ 		.handle_interrupt = gpy_handle_interrupt,
+ 		.set_wol	= gpy_set_wol,
