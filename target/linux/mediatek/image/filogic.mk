@@ -2740,6 +2740,26 @@ define Device/nradio_c8-668gl
 endef
 TARGET_DEVICES += nradio_c8-668gl
 
+define Device/nradio_c8-660-no2
+  DEVICE_VENDOR := NRadio
+  DEVICE_MODEL := C8-660 No2
+  DEVICE_DTS := mt7981b-nradio-c8-660-no2
+  DEVICE_DTS_DIR := ../dts
+  SUPPORTED_DEVICES += HCMT7981-NAND nradio,wt9103 nradio,c8-660-no2
+  DEVICE_PACKAGES := kmod-r8125 kmod-mt_wifi mtwifi-cfg mtwifi-wapp luci-app-mtwifi-cfg \
+	kmod-mediatek_hnat mtkhqos_util luci-app-turboacc-mtk luci-app-eqos-mtk \
+	qos-scripts mtk-smp kmod-usb3 kmod-usb-serial-option \
+	kmod-usb-net-qmi-wwan kmod-usb-net-cdc-mbim uqmi umbim sendat adb \
+	luci-app-Secondsystem660
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  IMAGE_SIZE := 436736k
+  KERNEL_IN_UBI := 1
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += nradio_c8-660-no2
+
 define Device/openembed_som7981
   DEVICE_VENDOR := OpenEmbed
   DEVICE_MODEL := SOM7981
