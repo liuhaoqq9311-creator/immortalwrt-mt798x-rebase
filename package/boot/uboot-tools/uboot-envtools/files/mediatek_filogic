@@ -139,6 +139,16 @@ dlink,aquila-pro-ai-m60-a1)
 gatonetworks,gdsp)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x10000"
 	;;
+HCMT7981-NAND|\
+nradio,c8-660-no2|\
+nradio,wt9103)
+	env_mtd="$(find_mtd_index "u-boot-env")"
+	if [ "$env_mtd" = "2" ]; then
+		ubootenv_add_uci_config "/dev/mtd2" "0x0" "0x20000" "0x80000" "1"
+	else
+		echo "C8-660 OEM u-boot-env mismatch: expected mtd2, got ${env_mtd:-missing}; skip env config."
+	fi
+	;;
 glinet,gl-mt3000|\
 ruijie,rg-x60-new-mtkuboot)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x80000" "0x20000"

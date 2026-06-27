@@ -237,6 +237,14 @@ platform_do_upgrade() {
 		CI_ROOTPART="rootfs"
 		nand_do_upgrade "$1"
 		;;
+	HCMT7981-NAND|\
+	nradio,c8-660-no2|\
+	nradio,wt9103)
+		CI_UBIPART="ubi"
+		CI_KERNPART="kernel"
+		CI_ROOTPART="rootfs"
+		nand_do_upgrade "$1"
+		;;
 	teltonika,rutc50)
 		CI_UBIPART="$(cmdline_get_var ubi.mtd)"
 		nand_do_upgrade "$1"
@@ -356,6 +364,12 @@ platform_check_image() {
 		}
 
 		return 0
+		;;
+	HCMT7981-NAND|\
+	nradio,c8-660-no2|\
+	nradio,wt9103)
+		nand_do_platform_check "nradio_c8-660-no2" "$1"
+		return $?
 		;;
 	*)
 		nand_do_platform_check "$board" "$1"

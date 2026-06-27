@@ -89,6 +89,11 @@ mediatek_setup_interfaces()
 	zbtlink,zbt-z8102ax-v2)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "eth1"
 		;;
+	HCMT7981-NAND|\
+	nradio,c8-660-no2|\
+	nradio,wt9103)
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 BLUE4" eth1
+		;;
 	zbtlink,zbt-z8106ax-t)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "eth1 wwan"
 		;;
@@ -310,6 +315,14 @@ mediatek_setup_macs()
 		lan_mac=$(mmc_get_mac_ascii bdinfo "fac_mac ")
 		wan_mac=$(macaddr_add "$lan_mac" 2)
 		label_mac=$lan_mac
+		;;
+	HCMT7981-NAND|\
+	nradio,c8-660-no2|\
+	nradio,wt9103)
+		lan_mac=$(mtd_get_mac_ascii bdinfo "fac_mac ")
+		label_mac=$lan_mac
+		[ -n "$lan_mac" ] || lan_mac=$(cat /sys/class/net/eth0/address)
+		wan_mac=$(macaddr_add "$lan_mac" 1)
 		;;
 	qihoo,360t7)
 		lan_mac=$(mtd_get_mac_ascii factory lanMac)

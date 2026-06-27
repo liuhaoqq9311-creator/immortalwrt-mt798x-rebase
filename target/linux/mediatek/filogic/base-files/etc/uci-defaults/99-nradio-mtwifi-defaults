@@ -1,0 +1,31 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+HCMT7981-NAND|nradio,wt9103|nradio,c8-660-no2)
+	;;
+*)
+	exit 0
+	;;
+esac
+
+[ -e /etc/config/wireless ] && exit 0
+[ -x /sbin/l1util ] || exit 1
+
+dev_list=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	[ -d /sys/module/mt_wifi ] || modprobe mt_wifi 2>/dev/null || true
+	dev_list="$(/sbin/l1util list 2>/dev/null)"
+	[ -n "$dev_list" ] && break
+	sleep 1
+done
+
+[ -n "$dev_list" ] || exit 1
+
+. /lib/wifi/mtwifi.sh
+detect_mtwifi
+
+[ -e /etc/config/wireless ] || exit 1
+
+exit 0
