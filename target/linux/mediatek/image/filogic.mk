@@ -2746,7 +2746,7 @@ define Device/nradio_c8-660-no2
   DEVICE_DTS := mt7981b-nradio-c8-660-no2
   DEVICE_DTS_DIR := ../dts
   SUPPORTED_DEVICES += HCMT7981-NAND nradio,wt9103 nradio,c8-660-no2
-  DEVICE_PACKAGES := kmod-r8125 kmod-mt_wifi mtwifi-cfg mtwifi-wapp luci-app-mtwifi-cfg \
+  DEVICE_PACKAGES := kmod-r8125 kmod-mt_wifi mtwifi-cfg-ucode mtwifi-wapp luci-app-mtwifi-cfg \
 	kmod-mediatek_hnat mtkhqos_util luci-app-turboacc-mtk luci-app-eqos-mtk \
 	qos-scripts mtk-smp kmod-usb3 kmod-usb-serial-option \
 	kmod-usb-net-qmi-wwan kmod-usb-net-cdc-mbim uqmi umbim sendat adb \
