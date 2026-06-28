@@ -29,6 +29,10 @@
             "type": "string",
             "description": "MAC address of the access point"
         },
+        "macaddr": {
+            "type": "string",
+            "description": "MAC address for the wireless interface"
+        },
         "bridge_isolate": {
             "type": "boolean",
             "description": "Enable bridge port isolation"

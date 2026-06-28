@@ -1,6 +1,45 @@
 #!/bin/sh
 
 . /lib/functions.sh
+. /lib/functions/system.sh
+
+c8_valid_mac()
+{
+	local mac="$1"
+	local first
+
+	mac="$(macaddr_canonicalize "$mac")"
+	[ -n "$mac" ] || return 1
+
+	first="${mac%%:*}"
+	[ $((0x$first & 1)) -eq 0 ]
+}
+
+c8_get_lan_mac()
+{
+	local mac
+
+	mac="$(mtd_get_mac_ascii bdinfo "fac_mac ")"
+	c8_valid_mac "$mac" && {
+		echo "$mac"
+		return
+	}
+
+	mac="$(cat /sys/class/net/eth0/address 2>/dev/null)"
+	c8_valid_mac "$mac" && echo "$mac"
+}
+
+c8_set_wifi_macs()
+{
+	local lan_mac
+
+	lan_mac="$(c8_get_lan_mac)"
+	[ -n "$lan_mac" ] || return
+
+	uci set wireless.default_MT7981_1_1.macaddr="$(macaddr_add "$lan_mac" 2)"
+	uci set wireless.default_MT7981_1_2.macaddr="$(macaddr_add "$lan_mac" 3)"
+	uci commit wireless
+}
 
 case "$(board_name)" in
 HCMT7981-NAND|nradio,wt9103|nradio,c8-660-no2)
@@ -27,5 +66,7 @@ done
 detect_mtwifi
 
 [ -e /etc/config/wireless ] || exit 1
+
+c8_set_wifi_macs
 
 exit 0

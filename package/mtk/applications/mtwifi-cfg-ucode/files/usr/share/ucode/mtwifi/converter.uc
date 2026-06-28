@@ -306,6 +306,15 @@ export function convert(uci_cfg) {
 		set_suffix("SSID", c.ssid);
 		set_suffix("WPAPSK", c.key);
 
+		// The primary BSSID uses MacAddress. Secondary VIFs use MacAddressN.
+		if (c.macaddr) {
+			if (vif_idx == 0) {
+				dat.MacAddress = c.macaddr;
+			} else {
+				dat[`MacAddress${vif_idx}`] = c.macaddr;
+			}
+		}
+
 		// base cfgs
         set_token("WirelessMode", wmode_int); // here WirelessMode is set twice, we keep it for safety
 		set_token("NoForwarding", strict_bool(c.isolate));
