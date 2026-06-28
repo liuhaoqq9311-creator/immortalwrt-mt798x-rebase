@@ -85,6 +85,12 @@
 	status = "okay";
 };
 
+&wifi {
+	status = "okay";
+
+	mediatek,mtd-eeprom = <&factory 0x0>;
+};
+
 &pcie {
 	status = "disabled";
 };
@@ -261,7 +267,7 @@
 				reg = <0x00100000 0x00080000>;
 			};
 
-			partition@180000 {
+			factory: partition@180000 {
 				label = "factory";
 				reg = <0x00180000 0x00180000>;
 			};
