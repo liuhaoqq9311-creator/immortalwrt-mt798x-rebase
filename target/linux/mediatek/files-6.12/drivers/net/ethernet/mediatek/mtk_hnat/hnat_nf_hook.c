@@ -32,6 +32,7 @@
 #include "hnat.h"
 
 #include "../mtk_eth_soc.h"
+#include "../mtk_eth_reset.h"
 
 #define do_ge2ext_fast(dev, skb)                                               \
 	((IS_LAN_GRP(dev) || IS_WAN(dev) || IS_PPD(dev)) && \
@@ -48,7 +49,48 @@
 
 static struct ipv6hdr mape_l2w_v6h;
 static struct ipv6hdr mape_w2l_v6h;
-static inline uint8_t get_wifi_hook_if_index_from_dev(const struct net_device *dev)
+
+static bool hnat_chk_dev_is_external_device(struct net_device *dev)
+{
+	struct device *parent;
+
+	if (!dev)
+		return false;
+
+	/* Virtual devices (bridge, vlan, bond) */
+	parent = dev->dev.parent;
+	if (!parent || !parent->driver)
+		return false;
+
+	/* Exclude all MTK internal devices */
+	if ((strcmp(parent->driver->name, "mtk_soc_eth") == 0) ||
+		   (strcmp(parent->driver->name, "mt7530-mmio") == 0) ||
+		   (strncmp(parent->driver->name, "mt79", 4) == 0))
+		return false;
+
+	return true;
+}
+
+static void hnat_handle_ext_eth_link_change(struct net_device *dev)
+{
+	bool up;
+
+	if (!dev)
+		return;
+
+	/* Only handle external physical devices */
+	if (!hnat_chk_dev_is_external_device(dev))
+		return;
+
+	up = netif_carrier_ok(dev);
+
+	if (hnat_mcast_eth_ext_link_handle) {
+		pr_info("ext link handler, up=%d\n", up);
+		hnat_mcast_eth_ext_link_handle(up);
+	}
+}
+
+uint8_t get_wifi_hook_if_index_from_dev(const struct net_device *dev)
 {
 	int i;
 
@@ -340,11 +382,21 @@ void foe_clear_all_bind_entries(void)
 
 static void gmac_ppe_fwd_enable(struct net_device *dev)
 {
+	struct mtk_eth *eth = hnat_priv->eth;
 	struct net_device *master_dev = dev;
 	struct mtk_mac *mac;
+	int i;
 
-	if (netdev_uses_dsa(master_dev))
+	if (dsa_user_dev_check(master_dev))
 		hnat_dsa_get_port(&master_dev);
+
+	for (i = 0; i < MTK_MAX_DEVS; i++) {
+		if (eth->netdev[i] == master_dev)
+			break;
+	}
+
+	if (i >= MTK_MAX_DEVS)
+		return;
 
 	mac = netdev_priv(master_dev);
 
@@ -371,6 +423,8 @@ int nf_hnat_netdevice_event(struct notifier_block *unused, unsigned long event,
 
 		break;
 	case NETDEV_CHANGE:
+		hnat_handle_ext_eth_link_change(dev);
+
 		/* Clear PPE entries if the slave of bond device physical link down */
 		if (!netif_is_bond_slave(dev) ||
 		    (!IS_LAN_GRP(dev) && !IS_WAN(dev)))
@@ -384,6 +438,9 @@ int nf_hnat_netdevice_event(struct notifier_block *unused, unsigned long event,
 	case NETDEV_GOING_DOWN:
 		if (!get_wifi_hook_if_index_from_dev(dev))
 			extif_put_dev(dev);
+
+		if (mcast_hook_toggle)
+			hnat_mcast_ifdown_handle(dev->ifindex);
 
 		if (!IS_LAN_GRP(dev) && !IS_WAN(dev) &&
 		    !find_extif_from_devname(dev->name) &&
@@ -409,7 +466,10 @@ int nf_hnat_netdevice_event(struct notifier_block *unused, unsigned long event,
 			hnat_priv->g_ppdev = dev_get_by_name(&init_net, hnat_priv->ppd);
 		if (IS_WAN(dev) && !hnat_priv->g_wandev)
 			hnat_priv->g_wandev = dev_get_by_name(&init_net, hnat_priv->wan);
-
+		break;
+	case MTK_FE_RESET_NAT_DONE:
+		pr_info("[%s] HNAT driver starts to do warm init !\n", __func__);
+		hnat_warm_init();
 		break;
 	default:
 		break;
@@ -1003,8 +1063,7 @@ static void mtk_464xlat_pre_process(struct sk_buff *skb)
 		return;
 
 	foe = &hnat_priv->foe_table_cpu[skb_hnat_ppe(skb)][skb_hnat_entry(skb)];
-	if (foe->bfib1.state != BIND &&
-	    skb_hnat_reason(skb) == HIT_UNBIND_RATE_REACH)
+	if (foe->bfib1.state != BIND && skb_hnat_reason_ready_bind(skb))
 		memcpy(&headroom[skb_hnat_entry(skb)], skb->head,
 		       sizeof(struct hnat_desc));
 
@@ -1093,13 +1152,9 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
 
 	if (skb_mac_header_was_set(skb) && (skb_mac_header_len(skb) >= ETH_HLEN)) {
 		eth = eth_hdr(skb);
-		if (is_broadcast_ether_addr(eth->h_dest))
+		if (is_broadcast_ether_addr(eth->h_dest) ||
+			(!mcast_hook_toggle && is_multicast_ether_addr(eth->h_dest)))
 			return 0;
-		if (is_multicast_ether_addr(eth->h_dest)) {
-			if (!hnat_priv->data->mcast ||
-			    (IS_MCAST_UNI_MODE && !hnat_is_mcast_uni(skb)))
-				return 0;
-		}
 	}
 
 	if (skb_hnat_ppe(skb) < CFG_PPE_NUM)
@@ -1112,7 +1167,7 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
 		iph = (struct iphdr *)(skb_network_header(skb) + h_offset);
 
 		/* check if the packet is multicast */
-		if (!hnat_priv->data->mcast && ipv4_is_multicast(iph->daddr))
+		if (!mcast_hook_toggle && ipv4_is_multicast(iph->daddr))
 			return 0;
 
 		if (mtk_tnl_decap_offloadable && mtk_tnl_decap_offloadable(skb)) {
@@ -1136,7 +1191,7 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
 		ip6h = (struct ipv6hdr *)(skb_network_header(skb) + h_offset);
 
 		/* check if the packet is multicast */
-		if (!hnat_priv->data->mcast && ip6h->daddr.s6_addr[0] == 0xff)
+		if (!mcast_hook_toggle && ip6h->daddr.s6_addr[0] == 0xff)
 			return 0;
 
 		if ((ip6h->nexthdr == NEXTHDR_TCP) ||
@@ -1368,7 +1423,7 @@ static int hnat_bridge_flood_check(struct sk_buff *skb,
 	if (!netif_is_bridge_port(in))
 		return 0;
 
-	if (skb_hnat_alg(skb) || skb_hnat_reason(skb) != HIT_UNBIND_RATE_REACH)
+	if (skb_hnat_alg(skb) || !skb_hnat_reason_ready_bind(skb))
 		return 0;
 
 	if (!is_unicast_ether_addr(eth_hdr(skb)->h_dest))
@@ -1720,7 +1775,7 @@ static struct foe_entry ppe_fill_info_blk(struct foe_entry entry,
 
 	switch ((int)entry.bfib1.pkt_type) {
 	case L2_BRIDGE:
-		if (IS_MCAST_MULTI_MODE &&
+		if (mcast_hook_toggle &&
 		    is_multicast_ether_addr(&hw_path->eth_dest[0]))
 			entry.l2_bridge.iblk2.mcast = 1;
 		else
@@ -1733,9 +1788,8 @@ static struct foe_entry ppe_fill_info_blk(struct foe_entry entry,
 		break;
 	case IPV4_HNAPT:
 	case IPV4_HNAT:
-		if (IS_MCAST_MULTI_MODE &&
+		if (mcast_hook_toggle &&
 		    is_multicast_ether_addr(&hw_path->eth_dest[0])) {
-			entry.ipv4_hnapt.iblk2.mcast = 1;
 			if (hnat_priv->data->version == MTK_HNAT_V1_3) {
 				entry.bfib1.sta = 1;
 				entry.ipv4_hnapt.m_timestamp = foe_timestamp(hnat_priv, true);
@@ -1758,9 +1812,8 @@ static struct foe_entry ppe_fill_info_blk(struct foe_entry entry,
 	case IPV6_3T_ROUTE:
 	case IPV6_HNAPT:
 	case IPV6_HNAT:
-		if (IS_MCAST_MULTI_MODE &&
+		if (mcast_hook_toggle &&
 		    is_multicast_ether_addr(&hw_path->eth_dest[0])) {
-			entry.ipv6_5t_route.iblk2.mcast = 1;
 			if (hnat_priv->data->version == MTK_HNAT_V1_3) {
 				entry.bfib1.sta = 1;
 				entry.ipv4_hnapt.m_timestamp = foe_timestamp(hnat_priv, true);
@@ -2183,6 +2236,44 @@ hnat_skip_fill_inner:
 }
 EXPORT_SYMBOL(hnat_bind_crypto_entry);
 
+bool hnat_mcast_chk_blist(struct foe_entry *entry)
+{
+	struct mcast_blist_data *m;
+	struct in6_addr ipv6;
+	u32 ipv4;
+	bool is_ipv4;
+	struct ppe_mcast_table *pmcast = hnat_priv->pmcast;
+
+	if (IS_IPV4_GRP(entry)) {
+		is_ipv4 = true;
+		ipv4 = htonl(entry->ipv4_hnapt.dip);
+	} else if (IS_IPV6_GRP(entry)) {
+		is_ipv4 = false;
+		ipv6.s6_addr32[0] = htonl(entry->ipv6_3t_route.ipv6_dip0);
+		ipv6.s6_addr32[1] = htonl(entry->ipv6_3t_route.ipv6_dip1);
+		ipv6.s6_addr32[2] = htonl(entry->ipv6_3t_route.ipv6_dip2);
+		ipv6.s6_addr32[3] = htonl(entry->ipv6_3t_route.ipv6_dip3);
+	} else
+		return false;
+
+	if (!pmcast)
+		return false;
+
+	read_lock_bh(&pmcast->mcast_lock);
+	list_for_each_entry(m, &hnat_priv->mcast_blist_list, list) {
+		if (is_ipv4 && m->is_ipv4 &&
+			((m->ipv4 & htonl(m->mask)) == (ipv4 & htonl(m->mask)))) {
+			read_unlock_bh(&pmcast->mcast_lock);
+			return true;
+		} else if (!is_ipv4 && !m->is_ipv4 && ipv6_addr_equal(&m->ipv6, &ipv6)) {
+			read_unlock_bh(&pmcast->mcast_lock);
+			return true;
+		}
+	}
+	read_unlock_bh(&pmcast->mcast_lock);
+	return false;
+}
+
 static int skb_to_hnat_info(struct sk_buff *skb,
 			    const struct net_device *dev,
 			    struct foe_entry *foe,
@@ -2208,9 +2299,10 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 	u32 qid = 0;
 	u16 h_offset = 0;
 	u16 h_proto = 0;
+	struct ethhdr *eth;
 
 	/*do not bind multicast if PPE mcast not enable*/
-	if (!hnat_priv->data->mcast && is_multicast_ether_addr(hw_path->eth_dest))
+	if (!mcast_hook_toggle && is_multicast_ether_addr(hw_path->eth_dest))
 		return -1;
 
 	ret = hnat_offload_engine_done(skb, hw_path);
@@ -2231,7 +2323,11 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 	entry.bfib1.sp = foe->udib1.sp;
 #endif
 
-	if (ntohs(eth_hdr(skb)->h_proto) == ETH_P_PPP_SES) {
+	if (IS_L2_BRIDGE(&entry)) {
+		if (!l2br_toggle)
+			return -1;
+		h_proto = ntohs(eth_hdr(skb)->h_proto);
+	} else if (ntohs(eth_hdr(skb)->h_proto) == ETH_P_PPP_SES) {
 		/* Apply PPPoE Bridge packet info to hw_path for further PPE entry preparing */
 		hw_path->flags |= BIT(DEV_PATH_PPPOE);
 		hw_path->pppoe_sid = ntohs(pppoe_hdr(skb)->sid);
@@ -2934,7 +3030,7 @@ hnat_entry_bind:
 						    skb_hnat_ppe(skb),
 						    skb_hnat_entry(skb));
 		if (!flow_entry) {
-			flow_entry = kmalloc(sizeof(*flow_entry), GFP_KERNEL);
+			flow_entry = kzalloc(sizeof(*flow_entry), GFP_ATOMIC);
 			if (!flow_entry) {
 				spin_unlock_bh(&hnat_priv->flow_entry_lock);
 				return -1;
@@ -2955,6 +3051,16 @@ hnat_entry_bind:
 		spin_unlock_bh(&hnat_priv->flow_entry_lock);
 
 		return 0;
+	}
+
+	if (mcast_hook_toggle && hnat_mcast_chk_blist(&entry))
+		return NF_ACCEPT;
+
+	eth = eth_hdr(skb);
+	if (mcast_hook_toggle && is_multicast_ether_addr(eth->h_dest)) {
+		if (hnat_mcast_foe_bind_handle(eth->h_dest, skb_hnat_ppe(skb),
+			skb_hnat_entry(skb), &entry, skb->dev->ifindex))
+			return NF_ACCEPT;
 	}
 
 	if (!spin_trylock_bh(&hnat_priv->entry_lock))
@@ -3019,7 +3125,7 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
 	if (unlikely(!skb_mac_header_was_set(skb)))
 		return NF_ACCEPT;
 
-	if (skb_hnat_reason(skb) != HIT_UNBIND_RATE_REACH)
+	if (!skb_hnat_reason_ready_bind(skb))
 		return NF_ACCEPT;
 
 	spin_lock_bh(&hnat_priv->flow_entry_lock);
@@ -3044,7 +3150,7 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
 	eth = eth_hdr(skb);
 
 	/* not bind multicast if PPE mcast not enable */
-	if (!hnat_priv->data->mcast) {
+	if (!mcast_hook_toggle) {
 		if (is_multicast_ether_addr(eth->h_dest))
 			return NF_ACCEPT;
 
@@ -3302,6 +3408,15 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
 #if defined(CONFIG_MEDIATEK_NETSYS_V3)
 	hnat_fill_offload_engine_entry(skb, &entry, NULL);
 #endif
+
+	if (mcast_hook_toggle && hnat_mcast_chk_blist(&entry))
+		return NF_ACCEPT;
+
+	if (mcast_hook_toggle && is_multicast_ether_addr(eth->h_dest)) {
+		if (hnat_mcast_foe_bind_handle(eth->h_dest, skb_hnat_ppe(skb),
+			skb_hnat_entry(skb), &entry, skb->dev->ifindex))
+			return NF_ACCEPT;
+	}
 
 	spin_lock_bh(&hnat_priv->entry_lock);
 	/* Final check if the entry is not in UNBIND state,
@@ -3795,7 +3910,9 @@ static int mtk_464xlat_post_process(struct sk_buff *skb, const struct net_device
 	if (hash >= hnat_priv->foe_etry_num)
 		return -1;
 
-	if (headroom[hash].crsn != HIT_UNBIND_RATE_REACH)
+	if (headroom[hash].crsn != HIT_UNBIND_RATE_REACH &&
+	    !(hnat_priv->bind_threshold <= 1 &&
+	      headroom[hash].crsn == HIT_UNBIND))
 		return -1;
 
 	foe = &hnat_priv->foe_table_cpu[headroom_ppe(headroom[hash])][hash];
@@ -3894,6 +4011,10 @@ static unsigned int mtk_hnat_nf_post_routing(
 		    IS_HNAT_API_SUPPORTED(entry))
 			hnat_trigger_callback(hnat_fin_callback, skb);
 		break;
+	case HIT_UNBIND:
+		if (!skb_hnat_reason_ready_bind(skb))
+			break;
+		fallthrough;
 	case HIT_UNBIND_RATE_REACH:
 		if (entry_hnat_is_bound(entry))
 			break;
@@ -3946,11 +4067,13 @@ static unsigned int mtk_hnat_nf_post_routing(
 
 		/* update mcast timestamp*/
 		if (hnat_priv->data->version == MTK_HNAT_V1_3 &&
-		    hnat_priv->data->mcast && entry->bfib1.sta == 1)
+		    mcast_hook_toggle && entry->bfib1.sta == 1)
 			entry->ipv4_hnapt.m_timestamp = foe_timestamp(hnat_priv, true);
 
 		if (entry_hnat_is_bound(entry)) {
-			memset(skb_hnat_info(skb), 0, sizeof(struct hnat_desc));
+			/* unshare if head cloned so sibling clones keep their hnat info */
+			if (!skb_shared(skb) && !skb_cow_head(skb, 0))
+				memset(skb_hnat_info(skb), 0, sizeof(struct hnat_desc));
 
 			return -1;
 		}
@@ -3989,7 +4112,7 @@ mtk_hnat_ipv6_nf_local_out(void *priv, struct sk_buff *skb,
 		return NF_ACCEPT;
 
 	entry = &hnat_priv->foe_table_cpu[skb_hnat_ppe(skb)][skb_hnat_entry(skb)];
-	if (skb_hnat_reason(skb) == HIT_UNBIND_RATE_REACH) {
+	if (skb_hnat_reason_ready_bind(skb)) {
 		ip6h = ipv6_hdr(skb);
 		if (ip6h->nexthdr == NEXTHDR_IPIP) {
 			/* Map-E LAN->WAN: need to record orig info before fn. */
@@ -4344,13 +4467,3 @@ int mtk_hqos_ptype_cb(struct sk_buff *skb, struct net_device *dev,
 	return 0;
 }
 
-int mtk_hnat_skb_headroom_copy(struct sk_buff *new, struct sk_buff *old)
-{
-	if (skb_headroom(new) < skb_headroom(old))
-		return -EPERM;
-
-	if (skb_hnat_reason(old) == HIT_UNBIND_RATE_REACH && skb_hnat_tops(old))
-		memcpy(new->head, old->head, skb_headroom(old));
-
-	return 0;
-}

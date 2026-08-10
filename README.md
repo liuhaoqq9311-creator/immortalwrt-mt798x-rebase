@@ -6,43 +6,48 @@ This repository is worked on ImmortalWrt with MTK OpenWrt Feeds patches imported
 
 ## Commit Cutoff Revisions
 
-### ImmortalWrt: [e04af5b](https://github.com/immortalwrt/immortalwrt/commit/e04af5bf78280429e9dc2c8602982416bd862076)
+### ImmortalWrt: [3dacd2f](https://github.com/immortalwrt/immortalwrt/commit/3dacd2fb6a48c5963b1026c6a343ec7e67cbf810)
 
 ```
-kernel: refresh patches
+Merge Official Source
 
-Fixes: 697d67e8a4ce ("Merge Official Source")
 Signed-off-by: Tianling Shen <cnsztl@immortalwrt.org>
 ```
 
-### MTK OpenWrt Feeds: [8b882e5](https://git01.mediatek.com/plugins/gitiles/openwrt/feeds/mtk-openwrt-feeds/+/8b882e59cf7123f3138153e5db7a18873dee6f71)
+### MTK OpenWrt Feeds: [00cd776](https://git01.mediatek.com/plugins/gitiles/openwrt/feeds/mtk-openwrt-feeds/+/00cd776fc860588c1ce45d694614b065c57c986a)
 
 ```
-[][kernel-6.12][common][eth][Fix the issue where the esw_cnt debug command cannot read the MIB]
+[][kernel-6.12][common][hnat][Fix multicast forwarding issue after SER]
 
 [Description]
-Fix the issue where the esw_cnt debug command cannot read the MIB.
+Fix multicast forwarding issue on MT7988 after SER by initializing
+multicast port mapping and handling multicast service. This resolves
+the forwarding path exception observed in the TOPS MC path.
 
 [Root Cause]
-Both the GDM and MT753x counters are cleared each time the kernel
-executes mtk_esw_cnt_read(). However, when running the cat esw_cnt
-debug command, the kernel may invoke mtk_esw_cnt_read() multiple times,
-not just once. As a result, GDM and MT753x counter data may be lost
-during the execution of the esw_cnt debug command.
+The issue occurred due to uninitialized multicast port mapping after
+SER, leading to incorrect forwarding paths. The multicast service
+handling was not properly invoked, causing forwarding exceptions.
 
 [Solution]
-We save the GDM counters in mtk_esw_cnt_open() and move the Switch
-counters clear to mtk_esw_cnt_release().
+Invoke hnat_mcast_ser_handle during warm initialization to reset
+multicast group parameters and initialize multicast port mapping
+using hnat_mcast_mcport_ppse_map_init. This ensures correct forwarding
+path setup post-SER.
 
 [How to Verify]
-N/A
+Test steps:
+1. Trigger SER on the device.
+2. Verify multicast forwarding paths are correctly set.
+3. Check multicast traffic is forwarded as expected.
+Expected: Multicast forwarding paths are correctly initialized and
+traffic is forwarded without exceptions.
 
 [Info to Customer]
 N/A
 
-
-Change-Id: Idb28da45ee92f07ad64ad00206388e0ac06c9f19
-Reviewed-on: https://gerrit.mediatek.inc/c/openwrt/feeds/mtk_openwrt_feeds/+/12183429
+Change-Id: I2277d9b4bd799ae61103d3017f6574f3cf48ec94
+Reviewed-on: https://gerrit.mediatek.inc/c/openwrt/feeds/mtk_openwrt_feeds/+/12429042
 ```
 
 ### l1parser: [081bb31](https://github.com/chasey-dev/l1parser/commit/081bb31211efc74594d25bfd1bb5811f3408a205)

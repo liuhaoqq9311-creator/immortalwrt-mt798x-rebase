@@ -33,7 +33,7 @@ MT7986_whnat()
 	#Physical IRQ# setting
 	PCIe0=
 	eth_tx=229
-	eth_rx0=230
+	eth_rx0=221
 	usb=205
 	if [ -d "/proc/warp_ctrl/warp0" ]; then
 	wifi1_irq=237
@@ -103,7 +103,7 @@ MT7986()
 	#Physical IRQ# setting
 	PCIe0=
 	eth_tx=229
-	eth_rx0=230
+	eth_rx0=221
 	wifi1_irq=245
 	wifi2_irq=
 	wifi3_irq=
@@ -166,7 +166,7 @@ MT7986_dbdc1()
 	#Physical IRQ# setting
 	PCIe0=
 	eth_tx=229
-	eth_rx0=230
+	eth_rx0=221
 	# WARP OFF -> wifi irq change from 237 to 245
 	wifi1_irq=245
 	wifi2_irq=245
@@ -210,7 +210,7 @@ MT7981_whnat()
 	#Physical IRQ# setting
 	PCIe0=
 	eth_tx=229
-	eth_rx0=230
+	eth_rx0=221
 	usb=205
 	if [ -d "/proc/warp_ctrl/warp0" ]; then
 		wifi1_irq=237
@@ -265,7 +265,7 @@ MT7981()
 	#Physical IRQ# setting
 	PCIe0=
 	eth_tx=229
-	eth_rx0=230
+	eth_rx0=221
 	wifi1_irq=245
 	wifi2_irq=
 	wifi3_irq=
@@ -312,7 +312,7 @@ MT7981_dbdc1()
 	#Physical IRQ# setting
 	PCIe0=
 	eth_tx=229
-	eth_rx0=230
+	eth_rx0=221
 	# WARP OFF -> wifi irq change from 237 to 245
 	wifi1_irq=245
 	wifi2_irq=245
@@ -773,10 +773,12 @@ setup_model()
 		MT7986_whnat $num_of_wifi $usbnet
 		;;
 	abt,asr3000* |\
+	aigo,ags21|\
 	asus,rt-ax52 |\
 	cetron,ct3003* |\
 	cmcc,a10* |\
 	cmcc,rax3000m* |\
+	cmcc,xr30* |\
 	comfast,cf-e393ax |\
 	comfast,cf-wr632ax* |\
 	confiabits,mt7981 |\
@@ -821,6 +823,8 @@ setup_model()
 	tplink,fr365-v1 |\
 	ubnt,unifi-6-plus |\
 	unielec,u7981* |\
+	viettel,32x6 |\
+	viettel,nr3053 |\
 	wavlink,wl-wn551x3 |\
 	wavlink,wl-wn586x3* |\
 	wavlink,wl-wn573hx3 |\
@@ -830,6 +834,7 @@ setup_model()
 	xiaomi,mi-router-wr30u* |\
 	yuncore,ax835 |\
 	zbtlink,zbt-z810* |\
+	zhao,7981r128 |\
 	zyxel,nwa50ax-pro |\
 	*7981*)
 		MT7981_whnat $num_of_wifi $usbnet
