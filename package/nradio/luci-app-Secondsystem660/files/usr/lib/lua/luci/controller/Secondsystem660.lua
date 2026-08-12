@@ -16,8 +16,12 @@ function action_switch()
     
     if confirm and confirm == "yes" then
         --sys.call("fw_setenv boot_system 0")
-        sys.call("cgsys1.sh")
-        sys.call("reboot")
+        local rc = sys.call("/usr/bin/cgsys1.sh")
+        if rc ~= 0 then
+            http.status(500, "Switch to OEM system failed")
+            http.prepare_content("text/plain")
+            http.write("Switch to OEM system failed; the device was not rebooted.")
+        end
     else
         luci.http.redirect(luci.dispatcher.build_url("admin", "system", "Secondsystem660", "settings"))
     end

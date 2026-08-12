@@ -13,7 +13,7 @@ define Package/luci-app-Secondsystem660
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=NRadio OEM C8-660 second-system LuCI app
-  DEPENDS:=+ubi-utils
+  DEPENDS:=+bash +ubi-utils
 endef
 
 define Package/luci-app-Secondsystem660/description
