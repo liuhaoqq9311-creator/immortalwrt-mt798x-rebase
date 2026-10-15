@@ -19,7 +19,7 @@ c8_get_lan_mac()
 {
 	local mac
 
-	mac="$(mtd_get_mac_ascii bdinfo "fac_mac ")"
+	mac="$(mtd_get_mac_ascii bdinfo "fac_mac")"
 	c8_valid_mac "$mac" && {
 		echo "$mac"
 		return

@@ -1,0 +1,71 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+	HCMT7981-NAND|nradio,c8-660-no2|nradio,wt9103) ;;
+	*) exit 0 ;;
+esac
+
+changed=0
+failed=0
+
+rename_device_refs() {
+	local section="$1" type option value token replacement result
+	config_get type "$section" TYPE
+	for option in device ifname ports name; do
+		[ "$option" != name ] || [ "$type" = device ] || continue
+		config_get value "$section" "$option"
+		result=""
+		for token in $value; do
+			replacement="$token"
+			case "$token" in
+				BLUE4) replacement=wan4 ;;
+				BLUE4:*) [ "$option" != ports ] || replacement="wan4:${token#BLUE4:}" ;;
+			esac
+			result="${result:+$result }$replacement"
+		done
+		[ "$result" != "$value" ] || continue
+		if [ "$option" = ports ]; then
+			uci -q delete "network.$section.$option" || failed=1
+			for token in $result; do
+				uci add_list "network.$section.$option=$token" || failed=1
+			done
+		else
+			uci set "network.$section.$option=$result" || failed=1
+		fi
+		changed=1
+	done
+}
+
+# Keep saved protocols, credentials, logical interface names and port roles.
+config_load network || exit 1
+config_foreach rename_device_refs
+[ "$failed" = 0 ] || exit 1
+[ "$changed" = 0 ] || uci commit network || exit 1
+
+# Only the new default logical interface needs an additional WAN zone entry.
+[ "$(uci -q get network.wan4.device)" = wan4 ] || exit 0
+changed=0
+
+add_wan4_zone() {
+	local section="$1" name networks interface
+	config_get name "$section" name
+	[ "$name" = wan ] || return 0
+	config_get networks "$section" network
+	for interface in wan4 wan46; do
+		uci -q get "network.$interface" >/dev/null || continue
+		case " $networks " in
+			*" $interface "*) continue ;;
+		esac
+		uci add_list "firewall.$section.network=$interface" || failed=1
+		changed=1
+	done
+}
+
+config_load firewall || exit 1
+config_foreach add_wan4_zone zone
+[ "$failed" = 0 ] || exit 1
+[ "$changed" = 0 ] || uci commit firewall || exit 1
+
+exit 0

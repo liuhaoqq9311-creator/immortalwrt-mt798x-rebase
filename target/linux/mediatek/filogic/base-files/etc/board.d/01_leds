@@ -166,8 +166,6 @@ nradio,c8-660-no2|\
 nradio,wt9103)
 	ucidef_set_led_default "power" "POWER" "hc:blue:status" "1"
 	ucidef_set_led_netdev "wifi" "WIFI" "hc:blue:wifi" "rax0" "link"
-	ucidef_set_led_netdev "5g" "5G" "hc:blue:cmode5" "eth1" "tx rx"
-	ucidef_set_led_netdev "lan" "LAN" "hc:blue:cmode4" "br-lan" "tx rx"
 	;;
 keenetic,kn-1812|\
 netcraze,nc-1812)

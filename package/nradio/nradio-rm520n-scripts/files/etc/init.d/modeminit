@@ -65,7 +65,6 @@ modem_init(){
           ModuleCheck
           sleep 1
           check_and_update_simsel
-          echo 1 > /sys/class/leds/hc:blue:wifi/brightness
           # BLUE4WAN.sh
           # 判断第三行文本并执行相应操作
           third_line=$(sendat 2 'ATI' | sed -n '3p')

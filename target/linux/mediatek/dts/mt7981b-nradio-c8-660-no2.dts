@@ -165,7 +165,7 @@
 
 			port@5 {
 				reg = <5>;
-				label = "BLUE4";
+				label = "wan4";
 				phy-mode = "2500base-x";
 				phy-handle = <&phy5>;
 			};

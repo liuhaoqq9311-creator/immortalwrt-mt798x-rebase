@@ -8,9 +8,9 @@ if [ -f "$filep" ]; then
     exit 0
 fi
 
-# 检查是否存在名为BLUE4的网络接口
-if ! ip link show | grep -q "BLUE4"; then
-    echo "Network interface BLUE4 not found, exiting."
+# 检查改名后的物理外网口；保留历史命令和逻辑接口名
+if ! ip link show dev wan4 >/dev/null 2>&1; then
+    echo "Network interface wan4 not found, exiting."
     exit 1
 fi
 
@@ -18,14 +18,14 @@ setup_blue4_interface() {
     # 配置 BLUE4WAN IPv4 接口
     uci delete network.$IFNAME
     uci set network.$IFNAME="interface"
-    uci set network.$IFNAME.ifname="BLUE4"
+    uci set network.$IFNAME.ifname="wan4"
     uci set network.$IFNAME.proto='dhcp'
     uci add_list firewall.@zone[1].network=$IFNAME
 
     # 配置 BLUE4WANV6 IPv6 接口
     uci delete network.$IFNAMEV6
     uci set network.$IFNAMEV6="interface"
-    uci set network.$IFNAMEV6.ifname="BLUE4"
+    uci set network.$IFNAMEV6.ifname="wan4"
     uci set network.$IFNAMEV6.proto='dhcpv6'
     uci add_list firewall.@zone[1].network=$IFNAMEV6
 

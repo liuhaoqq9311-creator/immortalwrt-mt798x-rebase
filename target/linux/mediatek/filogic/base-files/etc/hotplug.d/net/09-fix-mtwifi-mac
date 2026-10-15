@@ -97,7 +97,7 @@ mtwifi_set_macs()
     HCMT7981-NAND|\
     nradio,c8-660-no2|\
     nradio,wt9103)
-        local base_mac="$(mtd_get_mac_ascii bdinfo "fac_mac ")"
+        local base_mac="$(mtd_get_mac_ascii bdinfo "fac_mac")"
         [ -n "$base_mac" ] || base_mac="$(cat /sys/class/net/eth0/address 2>/dev/null)"
         valid_unicast_mac "$base_mac" || return
         local b0_mac="$(macaddr_add $base_mac 2)"
