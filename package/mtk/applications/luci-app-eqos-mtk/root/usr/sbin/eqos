@@ -13,7 +13,8 @@ BRIDGE_TABLE_NAME="eqos_bridge"
 BRIDGE_CHAIN_NAME="postrouting"
 SMART_BRIDGE_CHAIN_NAME="smart_ipv6_down"
 SMART_PRIORITY=-149
-MARK_CLEAR_MASK="0xffff0000"
+# The 64-queue layout uses mark bits 0-5 for the QDMA QID.
+MARK_CLEAR_MASK="0xffffffc0"
 # HNAT tests bit 7 rather than an exact mark value.
 HNAT_EXCEPTION_BIT="0x80"
 HNAT_BIND_THRESHOLD=5
@@ -256,8 +257,8 @@ table $TABLE_FAMILY $TABLE_NAME {
 		oifname "$dev" meta nfproto ipv4 ip dscp set 0
 		iifname "$dev" meta nfproto ipv6 ip6 dscp set 0
 		oifname "$dev" meta nfproto ipv6 ip6 dscp set 0
-		iifname "$dev" meta mark != $HNAT_EXCEPTION_MARK meta mark set meta mark & $MARK_CLEAR_MASK
-		oifname "$dev" meta mark != $HNAT_EXCEPTION_MARK meta mark set meta mark & $MARK_CLEAR_MASK
+		iifname "$dev" meta mark & $HNAT_EXCEPTION_BIT == 0 meta mark set meta mark & $MARK_CLEAR_MASK
+		oifname "$dev" meta mark & $HNAT_EXCEPTION_BIT == 0 meta mark set meta mark & $MARK_CLEAR_MASK
 		jump $SMART_CHAIN_NAME
 	}
 
@@ -440,15 +441,15 @@ EOF
 		down_qid=$((slot + QUEUE_SLOTS))
 		# Keep the 6.6 wire DSCP values; rebase uses a different downlink QID base.
 		cat >> "$batch" <<EOF
-add rule $TABLE_FAMILY $TABLE_NAME $SMART_CHAIN_NAME iifname "$DEV_DEFAULT" ip saddr $ip meta mark != $HNAT_EXCEPTION_MARK ip dscp set $slot meta mark set (meta mark & $MARK_CLEAR_MASK) | $slot counter comment "eqos-smart-ip4-up-$mac"
-add rule $TABLE_FAMILY $TABLE_NAME $SMART_CHAIN_NAME oifname "$DEV_DEFAULT" ip daddr $ip meta mark != $HNAT_EXCEPTION_MARK ip dscp set $((slot + 32)) meta mark set (meta mark & $MARK_CLEAR_MASK) | $down_qid counter comment "eqos-smart-ip4-down-$mac"
+add rule $TABLE_FAMILY $TABLE_NAME $SMART_CHAIN_NAME iifname "$DEV_DEFAULT" ip saddr $ip meta mark & $HNAT_EXCEPTION_BIT == 0 ip dscp set $slot meta mark set (meta mark & $MARK_CLEAR_MASK) | $slot counter comment "eqos-smart-ip4-up-$mac"
+add rule $TABLE_FAMILY $TABLE_NAME $SMART_CHAIN_NAME oifname "$DEV_DEFAULT" ip daddr $ip meta mark & $HNAT_EXCEPTION_BIT == 0 ip dscp set $((slot + 32)) meta mark set (meta mark & $MARK_CLEAR_MASK) | $down_qid counter comment "eqos-smart-ip4-down-$mac"
 EOF
 
 		grep -Fqx "$mac" "$seen_macs" && continue
 		printf '%s\n' "$mac" >> "$seen_macs"
 		cat >> "$batch" <<EOF
-add rule $TABLE_FAMILY $TABLE_NAME $SMART_CHAIN_NAME iifname "$DEV_DEFAULT" meta nfproto ipv6 ether saddr $mac meta mark != $HNAT_EXCEPTION_MARK meta mark set (meta mark & $MARK_CLEAR_MASK) | $slot counter comment "eqos-smart-ip6-up-$mac"
-add rule bridge $BRIDGE_TABLE_NAME $SMART_BRIDGE_CHAIN_NAME ether type ip6 ether daddr $mac meta mark != $HNAT_EXCEPTION_MARK meta mark set (meta mark & $MARK_CLEAR_MASK) | $down_qid counter comment "eqos-smart-ip6-down-$mac"
+add rule $TABLE_FAMILY $TABLE_NAME $SMART_CHAIN_NAME iifname "$DEV_DEFAULT" meta nfproto ipv6 ether saddr $mac meta mark & $HNAT_EXCEPTION_BIT == 0 meta mark set (meta mark & $MARK_CLEAR_MASK) | $slot counter comment "eqos-smart-ip6-up-$mac"
+add rule bridge $BRIDGE_TABLE_NAME $SMART_BRIDGE_CHAIN_NAME ether type ip6 ether daddr $mac meta mark & $HNAT_EXCEPTION_BIT == 0 meta mark set (meta mark & $MARK_CLEAR_MASK) | $down_qid counter comment "eqos-smart-ip6-down-$mac"
 EOF
 	done < "$leases"
 
@@ -548,13 +549,13 @@ nft_mark_rule() {
 			"$NFT" add rule "$TABLE_FAMILY" "$TABLE_NAME" "$CHAIN_NAME" \
 				ip "$addr" "$value" \
 				meta mark '&' "$HNAT_EXCEPTION_BIT" == 0 \
-				meta mark set "$qid"
+				meta mark set '(' meta mark '&' "$MARK_CLEAR_MASK" ')' '|' "$qid"
 			;;
 		ip6)
 			"$NFT" add rule "$TABLE_FAMILY" "$TABLE_NAME" "$CHAIN_NAME" \
 				ip6 "$addr" "$value" \
 				meta mark '&' "$HNAT_EXCEPTION_BIT" == 0 \
-				meta mark set "$qid"
+				meta mark set '(' meta mark '&' "$MARK_CLEAR_MASK" ')' '|' "$qid"
 			;;
 		*)
 			return 1
@@ -578,16 +579,19 @@ nft_exception_rule() {
 			;;
 	esac
 
+	# Clear the QID so software TX falls back to port-based queue selection.
 	case "$family" in
 		ip)
 			"$NFT" add rule "$TABLE_FAMILY" "$TABLE_NAME" "$CHAIN_NAME" \
 				ip "$addr" "$value" \
-				meta mark set "$HNAT_EXCEPTION_BIT"
+				meta mark set '(' meta mark '&' "$MARK_CLEAR_MASK" ')' \
+				'|' "$HNAT_EXCEPTION_BIT"
 			;;
 		ip6)
 			"$NFT" add rule "$TABLE_FAMILY" "$TABLE_NAME" "$CHAIN_NAME" \
 				ip6 "$addr" "$value" \
-				meta mark set "$HNAT_EXCEPTION_BIT"
+				meta mark set '(' meta mark '&' "$MARK_CLEAR_MASK" ')' \
+				'|' "$HNAT_EXCEPTION_BIT"
 			;;
 		*)
 			return 1
